@@ -251,7 +251,8 @@ TenkunGateway worker        1 kHz   每周期 ClearOutputs -> 刷新每槽 last_
 - `stand_joint_kd`（29 序）：腿 `2,2,2,4(膝),2,2` ×2；腰 `5(yaw),2,2`；臂 `1` ×14
 - `safety_damper_kd = 1.0`（阻尼安全层，全轴）
 - 站位姿：`straight_stand_jpos` / `squat_stand_jpos`（ReadyPose 目标；与 ai_sapiens `default_joint_pos` 对齐时以 URDF/训练零位为准）
-- **IMU 安装偏移**：`imu_offset_rpy = [0, -3.16, 0]`（约 -180.12°，真机 IMU 姿态需要该补偿后喂观测）
+- **IMU 安装偏移**：`imu_offset_rpy = [0, -3.16, 0]`（≈ -181.1° = 接近 -180° 的绕 Y 安装翻转；
+  真机 IMU 姿态需该补偿后喂观测，以 YAML 弧度原值为准）
 
 **RL 模式 kp/kd**：29Dof 从 ONNX metadata `joint_stiffness/joint_damping` 读（缺省 50/5）；
 0624 策略由 ai_sapiens `modelae_0624_config` 的 stiffness/damping 提供——真机 harness 沿用策略输出 kp/kd 经第 2 段规则即可，无需额外表。
