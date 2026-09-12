@@ -246,9 +246,9 @@ TenkunGateway worker        1 kHz   每周期 ClearOutputs -> 刷新每槽 last_
 > 说明：上表 `kp*10/kd*10` 与踝 kp=0 是 CiH408 固件阻抗单位与宿主二次 PD 的既定配合，
 > 已随真机原型验证，harness 应**逐字沿用**，不要"修正"。
 
-**站立/阻尼增益（`robot_control_parameters.json`）**：
-- `stand_joint_kp`（29 序）：腿 `100,100,100,150(膝),40,40` ×2；腰 `200(yaw),40,40`；臂 `40` ×14
-- `stand_joint_kd`（29 序）：腿 `2,2,2,4(膝),2,2` ×2；腰 `5,5,5`；臂 `1` ×14
+**站立/阻尼增益（`robot_control_parameters.json`，2026-09-12 校对）**：
+- `stand_joint_kp`（29 序）：腿 `100,100,100,150(膝),40,40` ×2；腰 `200(yaw),20,20`；臂 `40` ×14
+- `stand_joint_kd`（29 序）：腿 `2,2,2,4(膝),2,2` ×2；腰 `5(yaw),2,2`；臂 `1` ×14
 - `safety_damper_kd = 1.0`（阻尼安全层，全轴）
 - 站位姿：`straight_stand_jpos` / `squat_stand_jpos`（ReadyPose 目标；与 ai_sapiens `default_joint_pos` 对齐时以 URDF/训练零位为准）
 - **IMU 安装偏移**：`imu_offset_rpy = [0, -3.1, 0]`（约 -177.6°，真机 IMU 姿态需要该补偿后喂观测）
