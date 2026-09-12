@@ -382,9 +382,9 @@ void MujocoViewer::handle_cursor_pos(GLFWwindow * window, double xpos, double yp
     mouse_action = mjMOUSE_ZOOM;
   }
 
-  // Move camera.
+  // Move camera. (mujoco_vendor >= 0.1.0 mjv_moveCamera 移除 scn 参数)
   mjv_moveCamera(
-    sim_->model(), mouse_action, dx / height, dy / height, &scn_, &cam_);
+    sim_->model(), mouse_action, dx / height, dy / height, &cam_);
 }
 
 void MujocoViewer::handle_scroll(
@@ -404,7 +404,7 @@ void MujocoViewer::handle_scroll(
   }
 
   // Emulate vertical mouse motion = 5% of window height.
-  mjv_moveCamera(sim_->model(), mjMOUSE_ZOOM, 0.0, -0.05 * yoffset, &scn_, &cam_);
+  mjv_moveCamera(sim_->model(), mjMOUSE_ZOOM, 0.0, -0.05 * yoffset, &cam_);
 }
 
 ViewerUiEvent MujocoViewer::make_pointer_event(

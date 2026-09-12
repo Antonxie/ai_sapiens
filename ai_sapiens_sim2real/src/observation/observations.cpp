@@ -238,6 +238,47 @@ std::vector<float> obs_motion_anchor_ori_b(
   return {rot(0, 0), rot(0, 1), rot(1, 0), rot(1, 1), rot(2, 0), rot(2, 1)};
 }
 
+// proprio_full: Full proprioceptive single-frame observation assembled in
+// **mjlab time-major order** from named sub-terms.
+//
+// The training obs layout (mjlab, history_ordering="time") is:
+//   [ang_vel(3) | projected_gravity(3) | command(3) | joint_pos(29) |
+//    joint_vel(29) | last_action(29)] = 96 dims per frame
+// and 4 frames are concatenated oldest-first: [frame(t-3)..frame(t)].
+// ai_sapiens's per-term history buffer already outputs oldest-first, so this
+// term returns the CURRENT 96-dim frame and sim2real.yaml sets history_length: 4;
+// the ObservationManager concatenation then yields exactly the time-major 384
+// vector expected by the 0624 ONNX policy.
+//
+// YAML:
+//   observations:
+//     proprio_full:
+//       params:
+//         terms: [base_ang_vel, projected_gravity, velocity_commands,
+//                 joint_pos_rel, joint_vel_rel, last_action]
+//       history_length: 4
+std::vector<float> obs_proprio_full(
+  const ObservationContext & context,
+  const YAML::Node & params)
+{
+  const auto & terms = params["terms"];
+  if (!terms || !terms.IsSequence() || terms.size() == 0) {
+    throw std::runtime_error("proprio_full requires a non-empty 'terms' list");
+  }
+  auto & registry = ObservationRegistry::get_registry();
+  std::vector<float> frame;
+  for (const auto & name_node : terms) {
+    const std::string name = name_node.as<std::string>();
+    const auto it = registry.find(name);
+    if (it == registry.end()) {
+      throw std::runtime_error("proprio_full: unknown observation term '" + name + "'");
+    }
+    const auto values = it->second(context, YAML::Node());
+    frame.insert(frame.end(), values.begin(), values.end());
+  }
+  return frame;
+}
+
 // Static registration
 struct ObservationRegistrar
 {
@@ -257,6 +298,7 @@ struct ObservationRegistrar
     ObservationRegistry::register_observation("motion_joint_vel", obs_motion_joint_vel);
     ObservationRegistry::register_observation("motion_command", obs_motion_command);
     ObservationRegistry::register_observation("motion_anchor_ori_b", obs_motion_anchor_ori_b);
+    ObservationRegistry::register_observation("proprio_full", obs_proprio_full);
   }
 };
 

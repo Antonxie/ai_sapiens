@@ -178,6 +178,18 @@ void PolicyRuntime::update(const rclcpp::Duration & period)
   if (const auto raw_action = run_policy_inference()) {
     const auto & processed_action = action_pipeline_.process(*raw_action);
     write_processed_action(*raw_action, processed_action);
+
+    // [DIAG] obs/action 摘要
+    RCLCPP_INFO_THROTTLE(
+      node_->get_logger(), *node_->get_clock(), 1000,
+      "[POLDIAG] obs[:12]=[%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f] "
+      "act[:6]=[%.3f,%.3f,%.3f,%.3f,%.3f,%.3f] tgt_knee=%.3f",
+      policy_->input[0], policy_->input[1], policy_->input[2], policy_->input[3],
+      policy_->input[4], policy_->input[5], policy_->input[6], policy_->input[7],
+      policy_->input[8], policy_->input[9], policy_->input[10], policy_->input[11],
+      (*raw_action)[0], (*raw_action)[1], (*raw_action)[2], (*raw_action)[3],
+      (*raw_action)[4], (*raw_action)[5],
+      processed_action[3]);
   }
 
   advance_clocks();

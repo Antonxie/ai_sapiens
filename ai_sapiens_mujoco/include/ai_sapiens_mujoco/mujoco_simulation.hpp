@@ -21,6 +21,7 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdio>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -72,6 +73,11 @@ public:
   JointState joint_state(std::size_t joint_index) const;
   ImuState imu_state() const;
 
+  /// Record every physics frame's full state (time, qpos, qvel) to a text file.
+  /// Used for post-hoc velocity analysis and video replay. No-op on failure.
+  void enable_frame_record(const std::string & path);
+  void disable_frame_record();
+
   /// Steps the simulation with an accumulator; thread-safe.
   void advance(double dt_seconds);
 
@@ -94,6 +100,7 @@ public:
 private:
   void apply_control();   // caller holds mutex_
   void update_gantry();   // caller holds mutex_
+  void record_frame();    // caller holds mutex_
 
   mjModel * model_{nullptr};
   mjData * data_{nullptr};
@@ -110,6 +117,7 @@ private:
   std::array<mjtNum, 3> gantry_attach_pos_{};
   std::array<mjtNum, 4> gantry_to_base_quat_{1.0, 0.0, 0.0, 0.0};
   std::array<mjtNum, 4> gantry_upright_quat_{1.0, 0.0, 0.0, 0.0};
+  std::FILE * frame_record_{nullptr};
 };
 
 }  // namespace ai_sapiens_mujoco

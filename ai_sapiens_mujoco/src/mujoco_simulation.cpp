@@ -29,12 +29,53 @@ namespace ai_sapiens_mujoco
 
 MujocoSimulation::~MujocoSimulation()
 {
+  disable_frame_record();
   if (data_) {
     mj_deleteData(data_);
   }
   if (model_) {
     mj_deleteModel(model_);
   }
+}
+
+void MujocoSimulation::enable_frame_record(const std::string & path)
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  // 直接关闭旧文件 (不可调 disable_frame_record, 它也会锁同一 mutex -> 死锁)
+  if (frame_record_ != nullptr) {
+    std::fclose(frame_record_);
+    frame_record_ = nullptr;
+  }
+  frame_record_ = std::fopen(path.c_str(), "w");
+  if (frame_record_ == nullptr) {
+    return;
+  }
+  // Header: nq nv
+  std::fprintf(frame_record_, "%d %d\n", model_ ? model_->nq : 0, model_ ? model_->nv : 0);
+}
+
+void MujocoSimulation::disable_frame_record()
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (frame_record_ != nullptr) {
+    std::fclose(frame_record_);
+    frame_record_ = nullptr;
+  }
+}
+
+void MujocoSimulation::record_frame()
+{
+  if (frame_record_ == nullptr || model_ == nullptr || data_ == nullptr) {
+    return;
+  }
+  std::fprintf(frame_record_, "%.6f", data_->time);
+  for (int i = 0; i < model_->nq; ++i) {
+    std::fprintf(frame_record_, " %.9g", data_->qpos[i]);
+  }
+  for (int i = 0; i < model_->nv; ++i) {
+    std::fprintf(frame_record_, " %.9g", data_->qvel[i]);
+  }
+  std::fprintf(frame_record_, "\n");
 }
 
 void MujocoSimulation::load(
@@ -107,6 +148,15 @@ void MujocoSimulation::load(
   imu_quat_adr_ = model_->sensor_adr[quat_id];
   imu_gyro_adr_ = model_->sensor_adr[gyro_id];
   imu_acc_adr_ = model_->sensor_adr[acc_id];
+  // Apply the model's first keyframe (if any) so the sim starts in the
+  // training initial pose (e.g. 0624 KNEES_BENT) instead of all-zero qpos.
+  // All-zero qpos can leave the feet penetrating the floor plane, which makes
+  // the contact solver explode and knocks the robot over before any controller
+  // can take over.
+  if (model_->nkey > 0) {
+    mj_resetDataKeyframe(model_, data_, 0);
+    mj_forward(model_, data_);
+  }
   // Gantry lookups are optional (plain scene has none).
   gantry_body_ = mj_name2id(model_, mjOBJ_BODY, "gantry");
   if (gantry_body_ >= 0) {
@@ -231,12 +281,28 @@ void MujocoSimulation::apply_control()
 void MujocoSimulation::advance(double dt_seconds)
 {
   std::lock_guard<std::mutex> lock(mutex_);
+
+  // 控制器命令就绪前冻结仿真: 无 PD 命令时步进会让机器人(如 0624 KNEES_BENT)
+  // 在控制器激活前自由倒地。保持 keyframe 初始姿态直到收到有效命令。
+  bool has_command = false;
+  for (const auto & c : commands_) {
+    if (c.kp != 0.0f || c.position != 0.0f || c.feedforward != 0.0f) {
+      has_command = true;
+      break;
+    }
+  }
+  if (!has_command) {
+    accumulator_ = 0.0;
+    return;
+  }
+
   accumulator_ += dt_seconds;
   const double h = model_->opt.timestep;
   while (accumulator_ >= h) {
     apply_control();
     update_gantry();
     mj_step(model_, data_);
+    record_frame();
     accumulator_ -= h;
   }
 }

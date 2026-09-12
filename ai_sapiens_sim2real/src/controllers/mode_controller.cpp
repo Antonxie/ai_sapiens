@@ -154,6 +154,15 @@ ModeController::StartupGateStatus ModeController::startup_gate_status() const
     return StartupGateStatus::Open;
   }
 
+  // 0624 initial=Velocity: 策略闭环(velocity_policy)必须立即接管, 否则 startup
+  // gate 等待期机器人无控制, KNEES_BENT 非静平衡会在 ~1s 内倒地, 策略只能从
+  // 倒地状态起不来(深蹲)。策略状态直接放行。
+  if (current_state_name() == "Velocity" &&
+    mode_state_machine_.behavior_kind_for_state("Velocity") == BehaviorKind::Policy)
+  {
+    return StartupGateStatus::Open;
+  }
+
   if (is_startup_teleop_input_safe(make_current_teleop_input())) {
     return StartupGateStatus::AcceptInput;
   }
@@ -239,8 +248,12 @@ bool ModeController::is_startup_teleop_input_safe(
     kDampingConditionName, current_teleop_input);
   const bool is_ready_pose_requested = mode_state_machine_.does_teleop_input_match_condition(
     kStartupReadyPoseConditionName, current_teleop_input);
+  // 0624 initial=Velocity: 启动即策略闭环(0 指令站立)，VelocityRequested 也必须
+  // 通过 startup gate，否则策略永不启动。
+  const bool is_velocity_requested = mode_state_machine_.does_teleop_input_match_condition(
+    "VelocityRequested", current_teleop_input);
 
-  return is_damping_requested || is_ready_pose_requested;
+  return is_damping_requested || is_ready_pose_requested || is_velocity_requested;
 }
 
 // Pure detection: the highest-priority failsafe condition this tick, if any.
@@ -694,6 +707,18 @@ std::optional<ModeController::StateRequest> ModeController::resolve_state_reques
 // Pure: this tick's authority transition (Manual / ApiWarmup / Api) as data.
 ModeController::AuthorityChange ModeController::compute_authority_change() const
 {
+  // [DIAG] transient authority debugging
+  RCLCPP_WARN_THROTTLE(
+    node_->get_logger(), *node_->get_clock(), 1000,
+    "[DIAG] auth current=%s teleop_avail=%d api_mode_req=%d was_api_req=%d hb_valid=%d "
+    "active=%s",
+    authority_name(authority_.current()),
+    is_teleop_input_available() ? 1 : 0,
+    state_->teleop.api_mode_requested ? 1 : 0,
+    was_teleop_api_mode_requested_ ? 1 : 0,
+    is_api_heartbeat_valid() ? 1 : 0,
+    mode_->active_state_name.c_str());
+
   if (!is_teleop_input_available()) {
     return manual_authority_change(TransitionReason::TeleopInputUnavailable);
   }
@@ -717,6 +742,11 @@ ModeController::AuthorityChange ModeController::compute_warmup_entry_change() co
   if (!is_rising_edge) {
     return change;
   }
+
+  RCLCPP_INFO(
+    node_->get_logger(),
+    "[DIAG] warmup rising edge detected; can_enter_api=%d",
+    can_current_state_enter_api() ? 1 : 0);
 
   const auto * rejection_reason = authority_.api_entry_rejection_reason(
     *state_, can_current_state_enter_api());

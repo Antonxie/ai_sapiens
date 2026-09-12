@@ -69,6 +69,7 @@ private:
   bool viewer_enabled_{false};
   bool gantry_enabled_{true};
   double hang_height_{0.90};
+  std::string frame_record_path_{};
   // Precomputed full interface names (index-aligned with joint_names_).
   std::vector<std::string> pos_state_, vel_state_, eff_state_;
   std::vector<std::string> pos_cmd_, ff_cmd_, kp_cmd_, kd_cmd_;

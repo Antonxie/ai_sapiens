@@ -81,6 +81,7 @@ hardware_interface::CallbackReturn MujocoSystem::on_init(
   }
   viewer_enabled_ = parse_bool(get_param(hw_params, "viewer", "false"));
   gantry_enabled_ = parse_bool(get_param(hw_params, "gantry", "true"));
+  frame_record_path_ = get_param(hw_params, "frame_record_path", "");
 
   try {
     hang_height_ = std::stod(get_param(hw_params, "hang_height", "0.90"));
@@ -117,6 +118,10 @@ hardware_interface::CallbackReturn MujocoSystem::on_init(
   } catch (const std::exception & e) {
     RCLCPP_FATAL(get_logger(), "Failed to load MuJoCo scene: %s", e.what());
     return hardware_interface::CallbackReturn::ERROR;
+  }
+
+  if (!frame_record_path_.empty()) {
+    sim_->enable_frame_record(frame_record_path_);
   }
 
   if (gantry_enabled_ && sim_->gantry_present()) {
