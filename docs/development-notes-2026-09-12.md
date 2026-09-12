@@ -274,3 +274,53 @@ qemu-aarch64-static -L /home/anton/sysroot-arm64 \
 4. **并联解算尚未接入硬件插件**：写端 IK / 读端 FK 需在 RealRobotSystem（P0 待建）的
    write()/read() 中按 6 DOF 并联组索引（踝 4/5、10/11、腰 13/14）调用 `ParallelMechanism`。
 5. arm64 交叉构建需在容器运行前删除 rust 生成器 index 条目（`--rm` 容器每次重建，命令中已内置）。
+
+---
+
+## 6. sim2sim 测试：训练完成版 model_100000（2026-09-12 晚）
+
+**背景**：0624 AMP 训练达 max_iterations=100001 完成，导出 model_100000 -> policy.onnx
+部署到 `assets/modelae_0624/locomotion/velocity/walk_default/exported/`。跑标准 T3 速度跟踪 sim2sim。
+
+### 6.1 环境（本机宿主 ROS 已坏 -> 容器化）
+- 宿主 `/opt/ros/jazzy` arm64 污染 + rclpy 扩展缺失 -> x86 sim2sim 改在容器执行
+- **坑 1**：`ai_sapiens_dev` 容器将 `sysroot-arm64/opt/ros/jazzy` mount 到 `/opt/ros/jazzy`
+  （交叉用），在它里面跑 x86 运行时 = 拿到 arm64 库。**x86 运行/构建应使用不带该挂载的
+  一次性容器**（镜像内自带完整 x86 ROS；初次缺 rclpy/ros2pkg，`apt install --reinstall
+  ros-jazzy-rclpy` + `ros-jazzy-ros2pkg` 补齐）。
+- **坑 2（重要副作用）**：在 `ai_sapiens_dev` 内 `apt reinstall` 81 个 amd64 包写进了
+  sysroot -> **arm64 交叉 sysroot 被 x86 库污染**。恢复：`chroot /home/anton/sysroot-arm64
+  apt-get install --reinstall <arm64 包列表>`（源为 ubuntu ports + 阿里云 ros2），
+  并清理 `lib/x86_64-linux-gnu/` 残留 + 补装漏掉的 ros-jazzy-rcl/rclpy。交叉构建已复验通过。
+
+### 6.2 启动流程（容器 ~/sim2sim 一次成型）
+```bash
+docker run -d --name sim2sim_x86 --network host \
+  -v /home/anton/RobotDisk/_research/aisapiens/ai_sapiens:/workspace/ai_sapiens \
+  -w /workspace/ai_sapiens ai-sapiens:x86_64-gc13 bash -c "tail -f /dev/null"
+docker exec -d sim2sim_x86 bash -lc "source /opt/ros/jazzy/setup.bash && \
+  source /workspace/ai_sapiens/xbuild_x86/install/setup.bash && \
+  ros2 launch ai_sapiens_bringup modelae_0624_mujoco.launch.py > /tmp/sim2sim.log 2>&1"
+docker exec sim2sim_x86 bash -lc "source ...; python3 /tmp/hb_t3_auto.py"   # 30s 门内启动
+```
+- **坑 3**：`ai_sapiens_sim2real_node` 有 30s teleop startup gate，launch 后必须立刻起 hb 脚本，
+  否则节点退出。
+- **坑 4（帧记录不落盘）**：C stdio 缓冲导致 `frames.txt` 一直 0 字节（进程不退不 flush）。
+  修复：`mujoco_simulation.cpp` 的 `enable_frame_record`/`record_frame` 每帧 `fflush`（本次提交）。
+- **坑 5**：hw launch 读取 **install 副本** 的 URDF（`get_package_share_directory`）并做
+  `$(find ai_sapiens_description)` 字符串替换——`frame_record_path` 需在 install 副本里生效；
+  源码 URDF 保持 `$(find)` 写法（launch replace 到 share 路径），不要写死绝对路径。
+
+### 6.3 结果（model_100000 vs 此前 model_90200）
+| 阶段 | 指令 | model_90200 | model_100000 | 备注 |
+|---|---|---|---|---|
+| P0 站立 | 0 | 0.07 | -0.05 | |
+| P1 前 0.5 | 0.5 | 0.12 | **0.43 (err 0.07)** | 大改善 |
+| P2 前 1.0 | 1.0 | 1.04 | **1.05 (err 0.05)** | 稳定 |
+| P3 后退 -0.3 | -0.3 | 0.20 | **-0.20 (err 0.10)** | 改善~50% |
+| P4 转向 0.3 | 0.3 | 0.03 | 0.03 (err 0.10) | 转向仍弱 |
+| P5 停止 | 0 | - | -0.08 | |
+
+root_z 全程 0.96-0.98 无摔倒；13500+ 帧（80.6s）。视频：
+`rl_projects/AMP_mjlab_snapshot/t3_model100000.mp4`（68s, 19.7MB）。
+**结论**：训练完成版速度跟踪全面提升，仅纯转向（wz）仍为短板（训练转向样本不足所致）。

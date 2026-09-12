@@ -52,6 +52,7 @@ void MujocoSimulation::enable_frame_record(const std::string & path)
   }
   // Header: nq nv
   std::fprintf(frame_record_, "%d %d\n", model_ ? model_->nq : 0, model_ ? model_->nv : 0);
+  std::fflush(frame_record_);  // 帧记录实时落盘, 不依赖进程退出 flush
 }
 
 void MujocoSimulation::disable_frame_record()
@@ -69,6 +70,7 @@ void MujocoSimulation::record_frame()
     return;
   }
   std::fprintf(frame_record_, "%.6f", data_->time);
+  std::fflush(frame_record_);  // 实时落盘; 200Hz 少量数据, flush 开销可接受
   for (int i = 0; i < model_->nq; ++i) {
     std::fprintf(frame_record_, " %.9g", data_->qpos[i]);
   }
