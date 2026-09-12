@@ -43,6 +43,26 @@ include_directories(${ONNXRUNTIME_INCLUDE_DIR})
 include_directories(include)
 
 # ============================================================================
+# Parallel kinematics core (真机并联解算: 腰 roll/pitch + 踝 pitch/roll, IK/FK)
+# 纯 Eigen 依赖, 同时被主节点与双架构 smoke test 复用
+# ============================================================================
+add_library(parallel_kinematics_core STATIC
+  src/parallel/parallel_kinematics.cpp
+)
+target_link_libraries(parallel_kinematics_core
+  Eigen3::Eigen
+)
+
+# 冒烟测试 (无 ROS 依赖): x86 直接运行, aarch64 交叉产物用 qemu 运行
+add_executable(parallel_kinematics_smoke
+  test/parallel_kinematics_smoke.cpp
+)
+target_link_libraries(parallel_kinematics_smoke
+  parallel_kinematics_core
+  Eigen3::Eigen
+)
+
+# ============================================================================
 # Executable
 # ============================================================================
 add_executable(ai_sapiens_sim2real_node
@@ -92,6 +112,7 @@ ament_target_dependencies(ai_sapiens_sim2real_node
 )
 
 target_link_libraries(ai_sapiens_sim2real_node
+  parallel_kinematics_core
   yaml-cpp
   Eigen3::Eigen
   ${ONNXRUNTIME_LIBRARY}
@@ -213,6 +234,8 @@ pluginlib_export_plugin_description_file(
 # ============================================================================
 install(TARGETS
   ai_sapiens_sim2real_node
+  parallel_kinematics_core
+  parallel_kinematics_smoke
   radiomaster_pocket_teleop_input_plugin
   dualsense_teleop_input_plugin
   dualsense_teleop_ui_core
