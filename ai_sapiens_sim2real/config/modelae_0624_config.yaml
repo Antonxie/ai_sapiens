@@ -1,0 +1,208 @@
+robot_joint_order:
+- left_hip_pitch_joint
+- left_hip_roll_joint
+- left_hip_yaw_joint
+- left_knee_joint
+- left_ankle_pitch_joint
+- left_ankle_roll_joint
+- right_hip_pitch_joint
+- right_hip_roll_joint
+- right_hip_yaw_joint
+- right_knee_joint
+- right_ankle_pitch_joint
+- right_ankle_roll_joint
+- waist_yaw_joint
+- waist_roll_joint
+- waist_pitch_joint
+- left_shoulder_pitch_joint
+- left_shoulder_roll_joint
+- left_shoulder_yaw_joint
+- left_elbow_joint
+- left_wrist_roll_joint
+- left_wrist_pitch_joint
+- left_wrist_yaw_joint
+- right_shoulder_pitch_joint
+- right_shoulder_roll_joint
+- right_shoulder_yaw_joint
+- right_elbow_joint
+- right_wrist_roll_joint
+- right_wrist_pitch_joint
+- right_wrist_yaw_joint
+policy_asset_roots:
+- ../assets/modelae_0624
+authority:
+  api_entry:
+    warmup_duration: 3.0
+    velocity_neutral_threshold: 0.05
+    allowed_from_states:
+    - Damping
+    - ReadyPose
+    - Velocity
+  default_velocity_state: Velocity
+teleop_input:
+  plugin: ai_sapiens_sim2real/KeyboardTeleopInputPlugin
+  config: teleop/keyboard.yaml
+teleop_conditions:
+  DampingRequested:
+    input_code: 1
+  ReadyPoseRequested:
+    input_code: 2
+  VelocityRequested:
+    input_code: 3
+state_machine:
+  # 0624 物理上 KNEES_BENT 非静平衡，固定姿态(ReadyPose/Damping)会因重力前倾倒下；
+  # 只有策略闭环(Velocity)能像训练时那样主动平衡。故初始即进入 Velocity(0 指令=站立)。
+  initial: Velocity
+  states:
+    Damping:
+      run: damping
+      transitions:
+      - when: ReadyPoseRequested
+        to: ReadyPose
+    ReadyPose:
+      run: ready_pose
+      transitions:
+      - when: DampingRequested
+        to: Damping
+      - when: VelocityRequested
+        to: Velocity
+    Velocity:
+      run: velocity_policy
+      transitions:
+      - when: DampingRequested
+        to: Damping
+      - when: ReadyPoseRequested
+        to: ReadyPose
+state_behaviors:
+  damping:
+    kind: damping
+    damping:
+      values:
+      - - 3.0
+        - 3.0
+        - 3.0
+        - 3.0
+        - 3.0
+        - 3.0
+      - - 3.0
+        - 3.0
+        - 3.0
+        - 3.0
+        - 3.0
+        - 3.0
+      - - 3.0
+        - 3.0
+        - 3.0
+      - - 3.0
+        - 3.0
+        - 3.0
+        - 3.0
+        - 3.0
+        - 3.0
+        - 3.0
+      - - 3.0
+        - 3.0
+        - 3.0
+        - 3.0
+        - 3.0
+        - 3.0
+        - 3.0
+  ready_pose:
+    kind: posture
+    duration: 3.0
+    stiffness:
+      values:
+      - - 100.0
+        - 100.0
+        - 100.0
+        - 150.0
+        - 60.0
+        - 60.0
+      - - 100.0
+        - 100.0
+        - 100.0
+        - 150.0
+        - 60.0
+        - 60.0
+      - - 60.0
+        - 80.0
+        - 80.0
+      - - 20.0
+        - 20.0
+        - 20.0
+        - 20.0
+        - 10.0
+        - 10.0
+        - 10.0
+      - - 20.0
+        - 20.0
+        - 20.0
+        - 20.0
+        - 10.0
+        - 10.0
+        - 10.0
+    damping:
+      values:
+      - - 2.0
+        - 2.0
+        - 2.0
+        - 4.0
+        - 6.0
+        - 6.0
+      - - 2.0
+        - 2.0
+        - 2.0
+        - 4.0
+        - 6.0
+        - 6.0
+      - - 6.0
+        - 6.0
+        - 6.0
+      - - 2.0
+        - 2.0
+        - 2.0
+        - 2.0
+        - 1.0
+        - 1.0
+        - 1.0
+      - - 2.0
+        - 2.0
+        - 2.0
+        - 2.0
+        - 1.0
+        - 1.0
+        - 1.0
+    target_position:
+      values:
+      - - 0.0
+        - 0.0
+        - 0.0
+        - 0.1
+        - -0.1
+        - 0.0
+      - - 0.0
+        - 0.0
+        - 0.0
+        - 0.1
+        - -0.1
+        - 0.0
+      - - 0.0
+        - 0.0
+        - 0.0
+      - - 0.3
+        - 0.2
+        - 0.0
+        - 1.0
+        - 0.0
+        - 0.0
+        - 0.0
+      - - 0.3
+        - -0.2
+        - 0.0
+        - 1.0
+        - 0.0
+        - 0.0
+        - 0.0
+  velocity_policy:
+    kind: policy
+    asset: locomotion/velocity/walk_default

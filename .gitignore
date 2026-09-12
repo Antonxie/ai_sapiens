@@ -540,3 +540,18 @@ doc/
 
 ## GurumDDS
 *.ar
+
+##############################
+# ai_sapiens local build & cross-compile (added 2026-09-12)
+##############################
+
+# colcon build outputs
+/install/
+/log/
+
+# x86 / aarch64 交叉构建产物目录 (容器内 colcon 输出的隔离目录)
+/xbuild_*/
+
+# ONNX Runtime 预编译依赖 (由 PyPI/官方 release 提取, 不随仓库分发, 见 README)
+/deps_onnxruntime/
+/deps_onnxruntime_aarch64/
