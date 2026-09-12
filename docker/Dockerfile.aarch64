@@ -1,0 +1,64 @@
+# aarch64 (NVIDIA Jetson Thor / ARM64 Ubuntu 24.04) 构建变体。
+# 与 Dockerfile 的差异仅在 onnxruntime：
+#   - deps_onnxruntime_aarch64/ 提供 aarch64 版 libonnxruntime.so.1.23.2 (从 PyPI wheel 提取)
+# 用法 (在 Thor 或带 qemu binfmt 的构建机上, 拉取 arm64 基础镜像):
+#   docker build --platform linux/arm64 \
+#     --build-arg BASE_IMAGE=ros:jazzy \
+#     -f docker/Dockerfile.aarch64 -t robotis/ai-sapiens:arm64 .
+FROM ros:jazzy
+
+WORKDIR /root
+
+# onnxruntime aarch64: 从 PyPI wheel 提取的库 + 架构无关头文件
+COPY deps_onnxruntime_aarch64/include/onnxruntime /usr/local/include/onnxruntime
+COPY deps_onnxruntime_aarch64/lib/. /usr/local/lib/
+
+RUN ldconfig
+
+ENV COLCON_WS=/root/ros2_ws
+WORKDIR ${COLCON_WS}
+
+RUN mkdir -p ${COLCON_WS}/src
+
+COPY . ${COLCON_WS}/src/ai_sapiens
+
+ENV ROS_DISTRO=jazzy
+
+# 依赖安装（同 Dockerfile: 无 rosdep, 手动 apt 清单; ROS 源走阿里云, ubuntu 走官方）
+RUN sed -i 's|http://packages.ros.org/ros2/ubuntu|https://mirrors.aliyun.com/ros2/ubuntu|g' /etc/apt/sources.list.d/ros2.sources && \
+    DEBIAN_FRONTEND=noninteractive apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y \
+      ros-jazzy-ament-index-cpp \
+      ros-jazzy-controller-interface \
+      ros-jazzy-controller-manager \
+      ros-jazzy-control-msgs \
+      ros-jazzy-geometry-msgs \
+      ros-jazzy-hardware-interface \
+      ros-jazzy-imu-sensor-broadcaster \
+      ros-jazzy-joint-state-broadcaster \
+      ros-jazzy-joint-state-publisher-gui \
+      ros-jazzy-joy \
+      ros-jazzy-launch \
+      ros-jazzy-launch-ros \
+      ros-jazzy-mujoco-vendor \
+      ros-jazzy-pluginlib \
+      ros-jazzy-rclcpp \
+      ros-jazzy-rclcpp-lifecycle \
+      ros-jazzy-realtime-tools \
+      ros-jazzy-robot-state-publisher \
+      ros-jazzy-rosidl-default-runtime \
+      ros-jazzy-rviz2 \
+      ros-jazzy-sensor-msgs \
+      ros-jazzy-std-msgs \
+      ros-jazzy-std-srvs \
+      ros-jazzy-xacro \
+      ros-jazzy-generate-parameter-library \
+      libeigen3-dev \
+      libglfw3-dev \
+      libyaml-cpp-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN echo "source /opt/ros/${ROS_DISTRO}/setup.bash" >> ~/.bashrc  && \
+    echo "source ${COLCON_WS}/install/setup.bash" >> ~/.bashrc  && \
+    echo "alias cb='colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release --parallel-workers 1'" >> ~/.bashrc && \
+    echo "alias sb='source ~/.bashrc'" >> ~/.bashrc
