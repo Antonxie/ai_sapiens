@@ -2,7 +2,9 @@
 
 > 目标：把 `ai_sapiens_sim2real`（ROS2 + ros2_control）的力位混合阻抗命令下发到 0624 真机电机，
 > 并把关节状态回读给策略，实现 sim2sim -> sim2real 全链路复用。
-> 本方案基于对 `Model_A_E/hfzhao/bot_main` 与 `ai_sapiens_sim2real` 的源码/配置核对，不包含未经实机确认的参数。
+> 本方案基于 `Model_A_E/29Dof_stardynamics_humaoid`（真机控制原型, 通信/PD/遥控来源）、
+> `hfzhao/bot_main`（CiH408 CAN FD 帧格式同源参考）与 `ai_sapiens_sim2real` 的源码/配置核对，
+> 不包含未经实机确认的参数。策略以 **0624（384 维 4 帧×96, 速度限用 modelae_0624_config）为准**。
 
 ---
 
@@ -75,7 +77,8 @@
 
 ### 3.2 MotorCommand -> 天工 CAN FD `0x11` 混合命令帧（16 byte，大端）
 
-`EncodeCommand` 实现在 [tenkun_canfd.cc](../../../Model_A_E/hfzhao/bot_main/src/node/kinematics/module/actuator_module/protocol/tenkun_canfd.cc)。
+`EncodeCommand` 帧格式见 [tenkun_cih408.h](../../../Model_A_E/29Dof_stardynamics_humaoid/third-party/tenkun-soem/src/tenkun/tenkun_cih408.h)
+（bot_main `tenkun_canfd.cc` 为同款 CiH408 帧实现，可互为核对）。
 
 | 字节 | 字段 | 编码 | 范围 |
 |---|---|---|---|
@@ -104,16 +107,19 @@
 ### 3.4 网关槽位（TenkunGateway，1 kHz worker）
 
 - PDO 布局：`8B 头 + N * 22B`；`ChannelCount(320B)=12, (330B|400B)=14`。
+- 本机器人**腿板最多用 12 通道**（§4 路由，chan 1-12）——320B/12 槽固件足够，14 槽仅留余量。
 - 每通道 22B：`[CAN ID uint32 LE][type=0 标准帧][len<=16][CAN 数据]`。
 - **每 EtherCAT 周期刷新同槽 `last_payload`**（不清空），否则 500 Hz Send 间隔会丢 CAN FD 帧。
 - RX 校验：ID 匹配 + `(type & 0x03)==0` + len 1..16，否则忽略（并限频告警）。
 
 ---
 
-## 4. 关节-路由表（29 轴，来自 evt11.yaml / EVT11_HARDWARE_CONFIG.md）
+## 4. 关节-路由表（29 轴，真机拓扑 = 29Dof `rti_whole_body.json`）
 
 `global_motor_ids` 即策略观测/命令的数组索引，与 URDF 关节顺序一致：
 左腿 6 -> 右腿 6 -> 腰 yaw/roll/pitch -> 左臂 7 -> 右臂 7。
+**3 个 EtherCAT 从站**：index 2=腿板（12 通道 1-12）、index 0=左臂板（7）、index 1=腰+右臂板（10）。
+`gateway_slave_index`(0..2) + 1 = SOEM 从站号；通道从 1 开始。
 
 | 全局 ID | URDF 关节 | 网关 index | SOEM 从站(index+1) | 通道 | CAN ID |
 |---|---|---|---|---|---|
@@ -123,12 +129,12 @@
 | 3 | left_knee_joint | 2 | 3 | 4 | 84 |
 | 4 | left_ankle_pitch_joint | 2 | 3 | 5 | 85 |
 | 5 | left_ankle_roll_joint | 2 | 3 | 6 | 86 |
-| 6 | right_hip_pitch_joint | 2 | 3 | 8 | 97 |
-| 7 | right_hip_roll_joint | 2 | 3 | 9 | 98 |
-| 8 | right_hip_yaw_joint | 2 | 3 | 10 | 99 |
-| 9 | right_knee_joint | 2 | 3 | 11 | 100 |
-| 10 | right_ankle_pitch_joint | 2 | 3 | 12 | 101 |
-| 11 | right_ankle_roll_joint | 2 | 3 | 13 | 102 |
+| 6 | right_hip_pitch_joint | 2 | 3 | 7 | 97 |
+| 7 | right_hip_roll_joint | 2 | 3 | 8 | 98 |
+| 8 | right_hip_yaw_joint | 2 | 3 | 9 | 99 |
+| 9 | right_knee_joint | 2 | 3 | 10 | 100 |
+| 10 | right_ankle_pitch_joint | 2 | 3 | 11 | 101 |
+| 11 | right_ankle_roll_joint | 2 | 3 | 12 | 102 |
 | 12 | waist_yaw_joint | 1 | 2 | 10 | 51 |
 | 13 | waist_roll_joint | 1 | 2 | 8 | 49 |
 | 14 | waist_pitch_joint | 1 | 2 | 9 | 50 |
@@ -147,10 +153,13 @@
 | 27 | right_wrist_pitch_joint | 1 | 2 | 6 | 38 |
 | 28 | right_wrist_yaw_joint | 1 | 2 | 7 | 39 |
 
-电机型号（motor_database.yaml 的 `TENKUN_HRA*`）：
-- 腿/髋/腰 yaw：HRA125P / HRA100P；踝：HRA55P；腰 roll/pitch：HRA60P；左臂肩 2 轴：HRA60P_PRO；其余臂/腕：HRA60P。
-- **注意**：腰 roll/pitch、踝 pitch/roll 的条目是"并联电机槽位"，不是 URDF 串联自由度本身；
-  上表映射的是 URDF 自由度 -> 电机槽位，真正的并联解算见 §10（P1）。
+**腿板通道 1-12 连续**（右踝 roll 在通道 12）——320B/12 槽固件即可承载，
+不再需要 13/14 槽（此前 bot_main evt11.yaml 的 13 通道布局与真机原型不一致，弃用）。
+
+电机：**TenKun CiH408 系列**（CAN FD 仲裁 1Mbps / 数据 5Mbps，大端），
+29 路均为 CAN 逻辑通道经网关接线；**注意**：腰 roll/pitch、踝 pitch/roll 为
+并联电机槽位（每 2 电机驱动 2 DOF），上表是 URDF 自由度 -> 电机槽位映射，
+解算见 §8.5/§10（几何待标定）。
 
 ---
 
@@ -202,14 +211,50 @@ TenkunGateway worker        1 kHz   每周期 ClearOutputs -> 刷新每槽 last_
 
 ---
 
-## 8. 电机参数（待实机标定, P1）
+## 8. 电机参数（来源 29Dof `XjdlFieldBusHost.cpp` + `mujoco_simulation.json`，实机需核对）
 
-- `torque_constant`（Kt, Nm/A）与 `max_torque`（Nm）：`motor_database.yaml` 的 HRA 型号参数为准。
-- 电流->力矩：`torque = current_A * Kt`；FF 限幅 `min(max_torque, 200)`。
-- 旧 RTI 参考换算（`kMotorCurrentToTorqueNmPerA`，**仅供参考核对，需实机标定**）：
+- 电机为 **TenKun CiH408**（非 bot_main motor_database 的 HRA* 型号 list）。
+- **Kt（电流->力矩）**：29Dof 硬编码 `kMotorCurrentToTorqueNmPerA`（`XjdlFieldBusHost.cpp:60-66`）：
   髋 pitch/roll、膝 `2.1`；髋 yaw、腰 yaw `2.436`；踝 `2.6`；肩、肘 `2.7`；腰 roll/pitch、腕 `2.34`。
-- 4226 全仿真用的 kp/kd 是"串联关节语义"，与实机逐关节增益倍率不同（旧工程对膝、右髋
-  roll、上肢使用不同倍率），**不可直接当实机增益**（见 §10 P1）。
+- **力矩软限（harness clamp 参考）**：`mujoco_simulation.json` 的 `joint_tau_limit`（29 序）：
+  腿 `200,120,120,200,50,50`（×2）；腰 `120,25,25`；臂 `40×7, 20×7`（×2）。
+  提示：踝/腰的 50/25 N·m 与宿主二次 PD clamp（§8.5）量级一致，可作 FF 限幅与软限。
+- 电流->力矩：`torque = current_A * Kt`；FF 限幅沿用 `min(max_torque, 200)` 协议侧保护。
+
+---
+
+## 8.5 真机 PD 方案（来自 29Dof `XjdlFieldBusHost.cpp::RunLegMotor`，直接沿用）
+
+真机 PD 是**两段式**，与仿真"单一 affine actuator PD"不同，harness 必须实现第二段：
+
+```
+第 1 段 (策略/FSM 层, ai_sapiens 侧): BehaviorOutput -> JointImpedanceCommand
+     positions/feedforward(≈0)/kp/kd  -- 与仿真同语义, 直接映射 MotorCommand
+第 2 段 (真机宿主侧, harness 内实现): 仅 踝(4,5,10,11)/腰(13,14) 附加 PD
+```
+
+**第 2 段规则（29Dof 已验证逻辑）**：
+| 规则 | 值 |
+|---|---|
+| 附加 PD 关节 | 踝 4,5,10,11 与 腰 13,14（并联组，FK 解出 DOF 角后计算） |
+| 表达式 | `tau = kp*(qdes - q) + kd*(qddes - qd)` （q=FK 后的 DOF 角） |
+| 腰增益乘子 | kp × 0.3, kd × 0.6 |
+| torque clamp | 踝 ±50 N·m；腰 ±30 N·m |
+| 附加 PD 后下发 | 踝 kp=0, kd=0.02；腰 kp=120, kd=12 |
+| **全员缩放** | 下发前 `kp *= 10, kd *= 10`（腿×4、上肢×10/×2 的倍率旧代码已注释, 只用统一 ×10）|
+
+> 说明：上表 `kp*10/kd*10` 与踝 kp=0 是 CiH408 固件阻抗单位与宿主二次 PD 的既定配合，
+> 已随真机原型验证，harness 应**逐字沿用**，不要"修正"。
+
+**站立/阻尼增益（`robot_control_parameters.json`）**：
+- `stand_joint_kp`（29 序）：腿 `100,100,100,150(膝),40,40` ×2；腰 `200(yaw),40,40`；臂 `40` ×14
+- `stand_joint_kd`（29 序）：腿 `2,2,2,4(膝),2,2` ×2；腰 `5,5,5`；臂 `1` ×14
+- `safety_damper_kd = 1.0`（阻尼安全层，全轴）
+- 站位姿：`straight_stand_jpos` / `squat_stand_jpos`（ReadyPose 目标；与 ai_sapiens `default_joint_pos` 对齐时以 URDF/训练零位为准）
+- **IMU 安装偏移**：`imu_offset_rpy = [0, -3.1, 0]`（约 -177.6°，真机 IMU 姿态需要该补偿后喂观测）
+
+**RL 模式 kp/kd**：29Dof 从 ONNX metadata `joint_stiffness/joint_damping` 读（缺省 50/5）；
+0624 策略由 ai_sapiens `modelae_0624_config` 的 stiffness/damping 提供——真机 harness 沿用策略输出 kp/kd 经第 2 段规则即可，无需额外表。
 
 ---
 
@@ -223,16 +268,17 @@ TenkunGateway worker        1 kHz   每周期 ClearOutputs -> 刷新每槽 last_
 
 | 生命周期 | 职责 |
 |---|---|
-| `on_init` | 读参数：`ethercat_port`(=enp4s0)、`joint_names`(29)、路由表(slave/channel/can_id)、电机型号(Kt/max_torque)、`command_rate_hz`=500 |
-| `on_configure` | 构造 `BusManager(TENKUN_GATEWAY)`；`Open()` 校验从站 PDO 尺寸与槽位越界；`publish_states()` 准备 |
+| `on_init` | 读参数：`ethercat_port`(=enp4s0)、`joint_names`(29)、路由表(§4: slave/channel/can_id)、Kt/max_torque(§8)、`command_rate_hz`=500 |
+| `on_configure` | 构造 **29Dof 的 TenkunRti 全身调度**（3 从站 29 关节，非 bot_main 单模组 gateway）；`Open()` 校验从站 PDO 尺寸与槽位越界（腿板需 >= 12 槽）；`publish_states()` 准备 |
 | `on_activate` | 执行初始化序列（§5）；全部就绪后才置 activated；任一失败 -> 失能退出 |
-| `read()` | `sim_->advance` 替换为：`ReceiveBatch(0,128)` -> `ProcessReceivedFrame` 填 29 轴 MotorState -> 回填 state_interface `position/velocity/effort` + 发布 /joint_states |
-| `write()` | 500 Hz 节流；逐轴 `get_command(position/feedforward/proportional/derivative)` -> `MotorCommand` -> `EncodeCommand` -> `Send(can_id, 16B)` |
+| `read()` | `ReceiveBatch(0,128)` -> `ProcessReceivedFrame` 填 29 轴 MotorState -> **踝/腰并联 FK（§10/parallel_kinematics）回 DOF 角** -> 回填 state_interface + 发布 /joint_states |
+| `write()` | 500 Hz 节流；取 `get_command(position/feedforward/proportional/derivative)` -> 踝/腰 **IK 解算转电机角** -> `MotorCommand` -> 真机 PD 第 2 段（§8.5）+ 全员 `kp*=10/kd*=10` -> `EncodeCommand` -> `Send(can_id, 16B)` |
 | `on_deactivate` | `DisableMappedMotors()` 收尾失能 -> `Close()` |
 
 构建：
-- CMake 以源码/静态库方式引入 `actuator_module`（protocol/transport/driver/core），
-  依赖 SOEM (`libsoem`)；`pluginlib_export_plugin_description_file` + `PLUGINLIB_EXPORT_CLASS`。
+- CMake 以源码/静态库方式引入 **29Dof 的 `third-party/tenkun-soem`**（SOEM + TenkunRti +
+  `tenkun_cih408` 协议编解码；XjdlFieldBusHost 的实时/IO 逻辑可拆出复用），
+  依赖 SOEM；`pluginlib_export_plugin_description_file` + `PLUGINLIB_EXPORT_CLASS`。
 - URDF：把 `modelae_0624_mujoco.urdf` 的 `<plugin>mujoco_hardware_interface/MujocoSystem</plugin>`
   换成新的 `<plugin>real_robot_hardware_interface/RealRobotSystem</plugin>`；
   command/state interface 声明与 Mujoco 版保持一致。
@@ -241,16 +287,16 @@ TenkunGateway worker        1 kHz   每周期 ClearOutputs -> 刷新每槽 last_
 
 ## 10. 工程前置项（必须，P0）
 
-1. **TenkunGateway 多模组化**：当前构造器强制 `config.motors.size()==1`（单轴测试版，
-   `tenkun_gateway.cc:36`），open/Run/routes 已按 Route 数组写好，需放开限制并验证 29 路由
-   同时承载；`BusManager` 亦含单轴总线约束，需一并验证。
-2. **腿板 PDO 槽数**：路由用腿板 13 槽（右踝 roll 通道 13），320B 固件仅 12 槽；
-   **必须实机核对网关固件为 400B/14 槽（或 330B/14 槽）**，否则右踝 roll 无法路由。
-3. **实机拓扑确认**：网口名（enp4s0?）、3 个从站的 index/顺序、每板 CAN FD 接线、
-   通道布线必须逐轴核对（参考 `tests/dvt10/bus_test.cc`、`tests/tenkun/tenkun_test.cc` 单轴探测）。
-4. **关节方向/零偏**：CAN 报告位置与 URDF 自由度方向、can fd 编码器零偏需逐关节标定
-   （`encoder_offset`、`motor_direction`）。训练数据与 feedback 均按 URDF 串联自由度语义，
-   实机并联腰/踝需解算（P1）。
+1. **tenkun_rti 全身调度接入**：29Dof 的 `tenkun_rti.hpp` 已支持 3 从站 29 关节
+   （`joints_cmd_order_` 汇总裁实时序），不存在 bot_main 的"单模组总线限制"；
+   P0 工作 = 将其 EtherCAT 初始化/使能/状态机/反馈解析迁入 ROS2 SystemInterface 插件
+   （注意 29Dof 是裸 C++ 主循环，需要包成 `read()/write()` 实时回调）。
+2. **腿板 PDO 槽数核对**：§4 拓扑腿板最多 12 通道（chan 1-12 连续），320B/12 槽固件理论上足够；
+   **仍需实机确认网关固件输出 PDO >= 12 槽**，否则右踝 roll 无法路由。
+3. **实机拓扑核对**：按 `rti_whole_body.json` 逐轴核对网口（enp4s0）、3 从站 index、
+   每板通道布线、CAN ID 与 CAN FD 接线（参考 29Dof `tests/` 单轴探测流程）。
+4. **关节方向/零偏**：CAN 报告位置与 URDF 自由度方向、CiH408 编码器零偏需逐关节标定
+   （`motor_direction`、`encoder_offset`）；并联腰/踝经 FK/IK 后仍须叠加零偏语义（P1）。
 
 ---
 
@@ -276,22 +322,78 @@ TenkunGateway worker        1 kHz   每周期 ClearOutputs -> 刷新每槽 last_
 
 | 项 | 状态 | 责任 |
 |---|---|---|
-| TenkunGateway 单模组限制 | 需编码放开 | P0 |
-| PDO 固件 14 槽确认 | 需实机/固件核对 | P0 |
-| HRA* 型号 Kt / max_torque 确认 | motor_database.yaml 为准, 实机核对 | P1 |
+| tenkun_rti 全身调度迁入 ROS2 插件 | 待编码（29Dof 已有全身调度, 非单模组问题） | P0 |
+| 腿板 PDO >= 12 槽实机核对 | 需实机/固件核对（§10-2） | P0 |
+| Kt / max_torque 实机核对 | 29Dof 硬编码 Kt 2.1~2.7 为准, 需核对 | P1 |
 | 零偏/方向标定 | 逐关节标定流程 | P1 |
-| 腰/踝并联解算 | 旧工程 `XjdlFieldBusHost` 迁移 | P1 |
-| 实机 kp/kd 增益迁移 | 逐关节倍率换算, 不得直用仿真值 | P1 |
+| 腰/踝并联解算几何参数 | 模块已移植 (`parallel_kinematics`), 几何为 XJDL 参考值, 按 0624 实机标定 | P1 |
+| 真机 PD 第 2 段 (踝/腰二次 PD + ×10) | **已明确**（§8.5, 29Dof 逻辑）, 待编码进 harness | P0 |
+| IMU 安装补偿 (imu_offset_rpy=[0,-3.1,0]) | 已提供, 待真机对准 | P1 |
+| 遥控桥接: 29Dof `RcControlBridge` -> ROS2 | 待编码 (P0 进入实机联调前, §13) | P0 |
+
+---
+
+## 13. 真机遥控对接（2026-09-12 定案, 按 29Dof `RcControlBridge` 语义）
+
+用户端遥控器为 **Logitech USB 手柄（evdev `/dev/input/js*`），插在机载计算机（Jetson Thor）** 上；
+采集/模式切换/速度映射**沿用 29Dof（真机控制原型）的 `RcControlBridge.cpp`**，不重新实现。
+
+### 13.1 手柄链路（29Dof 侧，已存在，直接复用）
+
+```
+Logitech 手柄 (evdev /dev/input/js*, RunGamepad 100ms/10Hz)
+   └─ RcControlBridge (29Dof robot/src/RcControlBridge.cpp)
+        ├─ 轴映射: vx = 左摇杆X, wz = 右摇杆Y, vy=0, omega_pitch=0
+        ├─ 模式键 (LB 修饰键 + 组合):
+        │     LB+START -> PASSIVE(零力矩)     LB+BACK -> ESTOP(急停)
+        │     LB+RB    -> LOCK_JOINT(锁关节)  LB+A  -> STAND_UP(JointPD 站立)
+        │     LB+B/X/Y -> LOCOMOTION(RL 行走)
+        └─ 安全: 无独立断线渐减; 依赖 FSM SafetyChecker
+             (RL 状态 roll>50°/pitch>60° -> 强制 LOCK_JOINT; 初始状态即 ESStop)
+```
+
+### 13.2 桥接（新增实现项, P0）
+
+29Dof 是**裸 C++17（非 AimRT/ROS）**，输出是自定义 `RC_mode / control_mode` 枚举；
+ai_sapiens 是 ROS2（速度入口 `TwistCommandHandle` / 模式请求 / `api_heartbeat`）。
+真机须新增**桥接**（推荐在 29Dof 侧加一个轻量 ROS2 publisher，或独立小节点读 RcControlBridge 状态）：
+
+| 源 (29Dof RcControlBridge)     | 目标 (ai_sapiens ROS2)                        | 周期 |
+|---|---|---|
+| `v_des_x / omega_des_yaw`       | `geometry_msgs/Twist` -> `TwistCommandHandle` | 与命令周期一致(>=50Hz) |
+| STAND_UP / LOCOMOTION (进入)    | 模式请求进入 ReadyPose / Velocity              | 事件 |
+| PASSIVE / ESTOP / LOCK_JOINT    | 切 Damping / 急停请求                         | 事件 |
+| (无)                            | API 心跳: 仍由上位机服务提供, 与手柄互斥        | - |
+
+实现位置二选一：
+- **A（推荐, 改动少）**：在 29Dof 工程增加 ROS2 publisher（其 `learning_based` 侧已链入 ROS2 消息亦可），
+  直接发 Twist + 模式请求，复用其已验证的 FSM 键位逻辑；
+- **B**：绕过 29Dof 手柄，用 ai_sapiens 的 joystick/`radiomaster_usb_hardware_interface` 直接读
+  —— 会丢失 29Dof 已验证的 LB 组合键模式语义，不推荐。
+
+### 13.3 对齐约束
+
+- **速度范围以 0624 策略训练为准**：ai_sapiens `modelae_0624_config` 的速度限
+  （vx[-1,2] vy[-1,1] wz[-1,1]）为**权威**（不用 29Dof 旧策略的 vx<=0.7 封顶）；
+  `TwistCommandHandle` 按训练范围缩放，遥控摇杆满档语义由该缩放层统一定义。
+- **策略以 0624（384 维 4 帧）为准**：观测/命令由 ai_sapiens 现有链路生成，29Dof 仅提供
+  通信/PD/遥控逻辑，其 480 维旧策略不部署。
+- API 上机时：手柄负责手动接管（LB 组合键），API 心跳与权限互斥仍由 ai_sapiens
+  AuthorityRuntime 上升沿决定，桥接只转发，不做权限决策。
 
 ---
 
 ## 参考文件
 
-- 协议/驱动：`Model_A_E/hfzhao/bot_main/src/node/kinematics/module/actuator_module/`
-  `protocol/tenkun_canfd.{h,cc}`、`transport/tenkun_gateway.{h,cc}`、`transport/ethercat.{h,cc}`、
-  `core/types.h`、`core/bus_manager.{h,cc}`、`driver/motor_driver.{h,cc}`
-- 配置：`src/install/bin/cfg/02_robots/evt11.yaml`、`01_components/actuators/motor_database.yaml`
-- 文档：`docs/DVT10_HARDWARE_CONFIG.md`、`docs/EVT11_HARDWARE_CONFIG.md`、`docs/TENKUN_SINGLE_MOTOR.md`
+- 真机原型（控制逻辑/通信/PD/遥控来源）：
+  `Model_A_E/29Dof_stardynamics_humaoid/`
+  `robot/src/XjdlFieldBusHost.cpp`（总线宿主/踝腰 PD/FK 解算点）、`robot/src/RcControlBridge.cpp`（手柄）、
+  `third-party/tenkun-soem/src/tenkun/{tenkun_cih408.h, tenkun_rti.hpp}`（CiH408 帧/全身调度）、
+  `config/{rti_whole_body.json, robot_control_parameters.json, rl_g1_29dof_policy.json, mujoco_simulation.json}`、
+  `common/src/Controllers/CloseChainMapping.cpp`（并联 FK/IK 参考源，已移植为 `parallel_kinematics`）
+- 帧格式同源参考（CiH408，可互为核对）：
+  `Model_A_E/hfzhao/bot_main/src/node/kinematics/module/actuator_module/`
+  `protocol/tenkun_canfd.{h,cc}`、`transport/tenkun_gateway.{h,cc}`、`core/types.h`
 - 策略侧：`ai_sapiens_sim2real`（sim2real_node / control_loop / ObservationManager）、
   `ai_sapiens_hardware_interfaces/mujoco_hardware_interface`（替换模板）、
   `ai_sapiens_interfaces/msg/JointImpedanceCommand.msg`
