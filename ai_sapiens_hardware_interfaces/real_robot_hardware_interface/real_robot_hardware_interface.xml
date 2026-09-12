@@ -1,0 +1,10 @@
+<library path="real_robot_hardware_interface">
+  <class name="real_robot_hardware_interface/RealRobotSystem"
+         type="real_robot_hardware_interface::RealRobotSystem"
+         base_class_type="hardware_interface::SystemInterface">
+    <description>
+      0624 真机 Harness: TenKunRti (SOEM EtherCAT -> CiH408 CAN FD 3 从站 29 关节)
+      + 并联腰/踝 IK-FK + 真机 PD 第 2 段。schema: config/real_robot_0624.yaml
+    </description>
+  </class>
+</library>

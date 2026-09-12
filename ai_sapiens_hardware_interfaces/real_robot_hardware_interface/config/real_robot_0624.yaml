@@ -1,0 +1,67 @@
+# 0624 真机 harness 配置 (RealRobotSystem 加载)
+# 来源: 29Dof 真机原型 (rti_whole_body.json / robot_control_parameters.json) + 0624 策略对齐
+# 定案日期: 2026-09-13。所有数值来自实机原型代码/配置, 未标定项显式标注。
+
+ethercat:
+  interface: "enp4s0"          # 网口 (29Dof rti_whole_body.json)
+  rti_config_path: deps/tenkun-soem/config/rti_whole_body.json   # 或拷贝进来
+  control_frequency_hz: 500
+
+# 并联解算开关与几何 (几何为 XJDL 参考值, 0624 实机标定前不得当真值)
+parallel:
+  enabled: true                # 腰 roll/pitch + 左右踝 pitch/roll (6 DOF) 走 IK/FK
+  left_ankle:  {pitch_dof: 4,  roll_dof: 5 }   # 全局槽位 4/5
+  right_ankle: {pitch_dof: 10, roll_dof: 11}   # 全局槽位 10/11
+  waist:       {pitch_dof: 14, roll_dof: 13}   # 全局槽位 14/13 (pitch先, roll后)
+  # geometry 未配置则用代码内置 XJDL 参考参数 (待标定替换)
+
+# 电机电流->力矩 (29Dof XjdlFieldBusHost kMotorCurrentToTorqueNmPerA, 待实机核对)
+kt_nm_per_a:
+  # 按 29 控制器序; 缺省 2.7
+  default: 2.7
+  per_joint: [2.1,2.1,2.436,2.1,2.6,2.6, 2.1,2.1,2.436,2.1,2.6,2.6,
+              2.436,2.34,2.34, 2.7,2.7,2.7,2.7,2.34,2.34,2.34,
+              2.7,2.7,2.7,2.7,2.34,2.34,2.34]
+
+# 力矩软限 (mujoco_simulation.json joint_tau_limit, harness clamp 参考)
+tau_limit_nm:
+  - [200,120,120,200,50,50, 200,120,120,200,50,50, 120,25,25,
+     40,40,40,40,20,20,20, 40,40,40,40,20,20,20]
+
+# 真机 PD - 第 2 段 (29Dof RunLegMotor, 逐字沿用, 勿"修正")
+host_pd:
+  enabled: true
+  scale_kp: 10.0              # 全员下发前 kp *= 10
+  scale_kd: 10.0              # 全员下发前 kd *= 10
+  ankle:
+    dofs: [4,5,10,11]
+    kp_scale: 1.0             # 宿主附加 PD kp 系数 (无)
+    kd_scale: 1.0
+    torque_clamp_nm: 50.0
+    cmd_kp: 0.0               # 附加 PD 后下发 kp
+    cmd_kd: 0.02              # 附加 PD 后下发 kd
+  waist:
+    dofs: [13,14]
+    kp_scale: 0.3             # 腰 kp 乘子
+    kd_scale: 0.6             # 腰 kd 乘子
+    torque_clamp_nm: 30.0
+    cmd_kp: 120.0
+    cmd_kd: 12.0
+
+# 站立/阻尼增益 (robot_control_parameters.json, 2026-09-12 校订)
+stand_gains:
+  kp: [100,100,100,150,40,40, 100,100,100,150,40,40, 200,20,20,
+       40,40,40,40,40,40,40, 40,40,40,40,40,40,40]
+  kd: [2,2,2,4,2,2, 2,2,2,4,2,2, 5,2,2,
+       1,1,1,1,1,1,1, 1,1,1,1,1,1,1]
+  safety_damper_kd: 1.0
+  straight_stand_jpos: [-0.10,0,0,0.30,-0.20,0, -0.10,0,0,0.30,-0.20,0,
+                        0,0,0, 0.30,0.25,0,0.97,0.15,0,0, 0.30,-0.25,0,0.97,-0.15,0,0]
+
+# IMU 安装补偿 (标准 180° 绕 Y 倒装)
+imu:
+  offset_rpy_rad: [0.0, -3.14159265358979, 0.0]
+
+# 频率
+command_rate_hz: 500           # 下发节流
+watchdog_ms: 100               # 命令超时锁存

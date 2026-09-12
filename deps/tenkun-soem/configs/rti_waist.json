@@ -1,0 +1,17 @@
+{
+  "interface": "enx6c1ff7184e76",
+  "slaves": [
+    {
+      "index": 1,
+      "joints": [
+        { "name": "waist_roll_joint", "can_id": 49, "channel": 8 },
+        { "name": "waist_pitch_joint", "can_id": 50, "channel": 9 },
+        { "name": "waist_yaw_joint", "can_id": 51, "channel": 10 }
+      ]
+    }
+  ],
+  
+  "joints_names": ["waist_yaw_joint", "waist_roll_joint", "waist_pitch_joint"],
+  
+  "default_pos": [0.0, 0.0, 0.0]
+}

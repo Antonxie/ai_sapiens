@@ -1,0 +1,15 @@
+{
+  "interface": "enp3s0",
+  "slaves": [
+    {
+      "index": 0,
+      "joints": [
+        { "name": "right_hip_pitch_joint", "can_id": 1, "channel": 1 }
+      ]
+    }
+  ],
+  
+  "joints_names": ["right_hip_pitch_joint"],
+
+  "default_pos": [0.0]
+}

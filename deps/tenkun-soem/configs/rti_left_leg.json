@@ -1,0 +1,21 @@
+{
+  "interface": "enx6c1ff7184e76",
+  "slaves": [
+    {
+      "index": 0,
+      "joints": [
+        { "name": "left_hip_pitch_joint", "can_id": 81, "channel": 1 },
+        { "name": "left_hip_roll_joint", "can_id": 82, "channel": 2 },
+        { "name": "left_hip_yaw_joint", "can_id": 83, "channel": 3 },
+        { "name": "left_knee_joint", "can_id": 84, "channel": 4 },
+        { "name": "left_ankle_pitch_joint", "can_id": 85, "channel": 5 },
+        { "name": "left_ankle_roll_joint", "can_id": 86, "channel": 6 }
+      ]
+    }
+  ],
+  
+  "joints_names": ["left_hip_pitch_joint", "left_hip_roll_joint", "left_hip_yaw_joint", 
+                   "left_knee_joint", "left_ankle_pitch_joint", "left_ankle_roll_joint"],
+  
+  "default_pos": [0.0, 0.0, 0.0, 0.6, 0.0, 0.0]
+}

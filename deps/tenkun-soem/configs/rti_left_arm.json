@@ -1,0 +1,21 @@
+{
+  "interface": "enx6c1ff7184e76",
+  "slaves": [
+    {
+      "index": 1,
+      "joints": [
+        { "name": "left_shoulder_pitch_joint", "can_id": 17, "channel": 1 },
+        { "name": "left_shoulder_roll_joint", "can_id": 18, "channel": 2 },
+        { "name": "left_shoulder_yaw_joint", "can_id": 19, "channel": 3 },
+        { "name": "left_elbow_joint", "can_id": 20, "channel": 4 },
+        { "name": "left_wrist_roll_joint", "can_id": 21, "channel": 5 },
+        { "name": "left_wrist_yaw_joint", "can_id": 22, "channel": 6 }
+      ]
+    }
+  ],
+  
+  "joints_names": ["left_shoulder_pitch_joint", "left_shoulder_roll_joint", "left_shoulder_yaw_joint", 
+                   "left_elbow_joint", "left_wrist_roll_joint", "left_wrist_yaw_joint"],
+  
+  "default_pos": [0.0, 0.6, 0.0, 0.0, 0.0, 0.0]
+}
